@@ -58,7 +58,7 @@ func (cell *CellularAutomaton) Generate() {
 	cell.Generation++
 }
 
-// Create a PNG image from the cellular automaton.
+// Create a PNG image of the cellular automaton.
 func (cell *CellularAutomaton) CreateImage(width, height int, fg, bg color.RGBA, file string) {
 	rect := image.Rect(0, 0, width, height)
 	img := image.NewNRGBA(rect)
