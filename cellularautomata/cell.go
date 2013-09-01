@@ -65,15 +65,12 @@ func (cell *cellularAutomaton) createImage(width, height int, fg, bg color.RGBA,
   rect := image.Rect(0, 0, width, height)
   img := image.NewNRGBA(rect)
 
-  fore := color.RGBA{0x9F, 0xEF, 0x00, 255}
-  back := color.RGBA{0, 0, 0, 255}
-
   for cell.Generation < height {
     for i := 0; i < width; i++ {
       if cell.Cells[i] == 0 {
-        img.Set(i, cell.Generation, back)
+        img.Set(i, cell.Generation, bg)
       } else {
-        img.Set(i, cell.Generation, fore)
+        img.Set(i, cell.Generation, fg)
       }
     }
     cell.generate()
