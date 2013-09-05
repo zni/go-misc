@@ -1,7 +1,7 @@
 // Driver for cellular automata image output.
 // Author: Matt Godshall
 // Date  : 08-31-2013
-package cell
+package main
 
 import (
     "encoding/hex"

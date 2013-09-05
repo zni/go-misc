@@ -1,7 +1,7 @@
 // Output cellular automata to PNGs.
 // Author: Matt Godshall
 // Date  : 08-31-2013
-package cell
+package main
 
 import (
     "fmt"
