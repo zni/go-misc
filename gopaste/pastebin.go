@@ -1,11 +1,10 @@
-package main
+package gopaste
 
 import (
     "net/http"
     "net/url"
     "io/ioutil"
     "encoding/xml"
-    "log"
     "strings"
 )
 
@@ -13,10 +12,18 @@ const pastebinURL = "http://pastebin.com/api/api_post.php"
 const pastebinLoginURL = "http://pastebin.com/api/api_login.php"
 
 const (
-    PUBLIC   = iota
-    UNLISTED = iota
-    PRIVATE  = iota
+    Public   = iota
+    Unlisted = iota
+    Private  = iota
 )
+
+type PasteError struct {
+    ErrorString string
+}
+
+func (p *PasteError) Error() string {
+    return p.ErrorString
+}
 
 type PasteBinInfo struct {
     APIKey  string
@@ -41,29 +48,29 @@ type Paste struct {
 }
 
 type Pastes struct {
-    XMLName     xml.Name `xml:"root"`
-    Pastes []Paste `xml:"paste"`
+    XMLName xml.Name `xml:"root"`
+    Pastes  []Paste  `xml:"paste"`
 }
 
 // Get the currently trending pastes.
-func (pasteBin *PasteBinInfo) GetTrendingPastes() (*Pastes) {
+func (pasteBin *PasteBinInfo) GetTrendingPastes() (*Pastes, error) {
     query := url.Values{}
     query.Add("api_dev_key", pasteBin.APIKey)
     query.Add("api_option", "trends")
 
     resp, err := http.PostForm(pastebinURL, query)
     if err != nil {
-        log.Fatal("unable to fetch trending pastes:", err)
+        return nil, &PasteError{"unable to fetch trending pastes: " + err.Error()}
     }
 
     body, err := ioutil.ReadAll(resp.Body)
     if err != nil {
-        log.Fatal("could not read response body:", err)
+        return nil, &PasteError{"could not read response: " + err.Error()}
     }
 
     result := string(body)
     if strings.Contains(result, "Bad API request") {
-        log.Fatal("could not login:", result)
+        return nil, &PasteError{"could not get trending pastes: " + result}
     }
 
     pastes := &Pastes{}
@@ -71,14 +78,14 @@ func (pasteBin *PasteBinInfo) GetTrendingPastes() (*Pastes) {
 
     err = xml.Unmarshal([]byte(result), pastes)
     if err != nil {
-        log.Fatal("could not parse xml:", err)
+        return nil, &PasteError{"could not parse trending pastes: " + err.Error()}
     }
 
-    return pastes
+    return pastes, nil
 }
 
 // Login to pastebin and populate the UserKey in PasteBinInfo.
-func (pasteBin *PasteBinInfo) UserLogin(user, password string) {
+func (pasteBin *PasteBinInfo) UserLogin(user, password string) (error) {
     query := url.Values{}
     query.Add("api_dev_key", pasteBin.APIKey)
     query.Add("api_user_name", user)
@@ -86,20 +93,21 @@ func (pasteBin *PasteBinInfo) UserLogin(user, password string) {
 
     resp, err := http.PostForm(pastebinLoginURL, query)
     if err != nil {
-        log.Fatal("could not login:", err)
+        return &PasteError{"could not login: " + err.Error()}
     }
 
     body, err := ioutil.ReadAll(resp.Body)
     if err != nil {
-        log.Fatal("could not read response body:", err)
+        return &PasteError{"could not read response body: " + err.Error()}
     }
 
     result := string(body)
     if strings.Contains(result, "Bad API request") {
-        log.Fatal("could not login:", result)
+        return &PasteError{"could not login: " + result}
     }
 
     pasteBin.UserKey = result
+    return nil
 }
 
 type User struct {
@@ -116,8 +124,18 @@ type User struct {
     AccountType string `xml:"user_account_type"`
 }
 
+func parseUserInfo(userInfo []byte) (*User, error) {
+    user := &User{}
+    err := xml.Unmarshal(userInfo, user)
+    if err != nil {
+        return nil, &PasteError{"could not parse user information:" + err.Error()}
+    }
+
+    return user, nil
+}
+
 // Get information about the logged in user.
-func (pasteBin *PasteBinInfo) UserInfo() (*User) {
+func (pasteBin *PasteBinInfo) UserInfo() (*User, error) {
     query := url.Values{}
     query.Add("api_dev_key", pasteBin.APIKey)
     query.Add("api_user_key", pasteBin.UserKey)
@@ -125,26 +143,20 @@ func (pasteBin *PasteBinInfo) UserInfo() (*User) {
 
     resp, err := http.PostForm(pastebinURL, query)
     if err != nil {
-        log.Fatal("unable to fetch user info:", err)
+        return nil, &PasteError{"request failed: " + err.Error()}
     }
 
     body, err := ioutil.ReadAll(resp.Body)
     if err != nil {
-        log.Fatal("could not read response body:", err)
+        return nil, &PasteError{"could not read response: " + err.Error()}
     }
 
     result := string(body)
     if strings.Contains(result, "Bad API request") {
-        log.Fatal("could not get user information:", result)
+        return nil, &PasteError{"could not get user information: " + result}
     }
 
-    user := &User{}
-    err = xml.Unmarshal([]byte(result), user)
-    if err != nil {
-        log.Fatal("could not parse xml:", err)
-    }
-
-    return user
+    return parseUserInfo([]byte(result))
 }
 
 /*
