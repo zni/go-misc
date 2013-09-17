@@ -11,12 +11,6 @@ import (
 const pastebinURL = "http://pastebin.com/api/api_post.php"
 const pastebinLoginURL = "http://pastebin.com/api/api_login.php"
 
-const (
-    Public   = iota
-    Unlisted = iota
-    Private  = iota
-)
-
 type PasteError struct {
     ErrorString string
 }
@@ -74,6 +68,8 @@ func (pasteBin *PasteBinInfo) GetTrendingPastes() (*Pastes, error) {
     }
 
     pastes := &Pastes{}
+    // We wrap the result in a throwaway root tag, so that the pastes can be
+    // unmarshaled.
     result = "<root>" + result + "</root>"
 
     err = xml.Unmarshal([]byte(result), pastes)
@@ -85,7 +81,7 @@ func (pasteBin *PasteBinInfo) GetTrendingPastes() (*Pastes, error) {
 }
 
 // Login to pastebin and populate the UserKey in PasteBinInfo.
-func (pasteBin *PasteBinInfo) UserLogin(user, password string) (error) {
+func (pasteBin *PasteBinInfo) UserLogin(user, password string) error {
     query := url.Values{}
     query.Add("api_dev_key", pasteBin.APIKey)
     query.Add("api_user_name", user)
@@ -128,7 +124,7 @@ func parseUserInfo(userInfo []byte) (*User, error) {
     user := &User{}
     err := xml.Unmarshal(userInfo, user)
     if err != nil {
-        return nil, &PasteError{"could not parse user information:" + err.Error()}
+        return nil, &PasteError{"could not parse user information: " + err.Error()}
     }
 
     return user, nil
@@ -159,9 +155,121 @@ func (pasteBin *PasteBinInfo) UserInfo() (*User, error) {
     return parseUserInfo([]byte(result))
 }
 
-/*
-func (pasteBin *PasteBinInfo) AnonymousPaste(content string) {
+// Paste access level.
+type Access int
+const (
+    Public Access = iota
+    Unlisted
+    Private
+)
+
+// Paste expiration time length.
+type Time string
+const (
+    Never Time = "N"
+    TenMinutes = "10M"
+    OneHour    = "1H"
+    OneDay     = "1D"
+    OneWeek    = "1W"
+    TwoWeeks   = "2W"
+    OneMonth   = "1M"
+)
+
+
+// Paste options, made up of an access level, expiration time, and format.
+// Format is one of: http://pastebin.com/api#5
+type PasteOptions struct {
+    Privacy    Access
+    Expiration Time
+    Format     string
+}
+
+// Default paste options. Expiration length is set to 'Never', Privacy is
+// set to 'Public', and Format is set to 'text'.
+func DefaultOptions() *PasteOptions {
+    return &PasteOptions{Public, Never, "text"}
+}
+
+// Make an anonymous paste. An anonymous paste can only be Public or Unlisted.
+func (pasteBin *PasteBinInfo) AnonymousPaste(content *string, options *PasteOptions) (*string, error) {
     query := url.Values{}
     query.Add("api_dev_key", pasteBin.APIKey)
+    query.Add("api_option", "paste")
+    query.Add("api_paste_private", string(options.Privacy))
+    query.Add("api_paste_expire_date", string(options.Expiration))
+    query.Add("api_paste_format", options.Format)
+    query.Add("api_paste_code", *content)
+
+    resp, err := http.PostForm(pastebinURL, query)
+    if err != nil {
+        return nil, &PasteError{"request failed: " + err.Error()}
+    }
+
+    body, err := ioutil.ReadAll(resp.Body)
+    if err != nil {
+        return nil, &PasteError{"could not read response: " + err.Error()}
+    }
+
+    result := string(body)
+    if strings.Contains(result, "Bad API request") {
+        return nil, &PasteError{"could not create paste: " + result}
+    }
+
+    return &result, nil
 }
-*/
+
+// Create a paste under a pastebin username. You must login with 'UserLogin' first.
+func (pasteBin *PasteBinInfo) UserPaste(content *string, options *PasteOptions) (*string, error) {
+    query := url.Values{}
+    query.Add("api_dev_key", pasteBin.APIKey)
+    query.Add("api_option", "paste")
+    query.Add("api_user_key", pasteBin.UserKey)
+    query.Add("api_paste_private", string(options.Privacy))
+    query.Add("api_paste_expire_date", string(options.Expiration))
+    query.Add("api_paste_format", options.Format)
+    query.Add("api_paste_code", *content)
+
+    resp, err := http.PostForm(pastebinURL, query)
+    if err != nil {
+        return nil, &PasteError{"request failed: " + err.Error()}
+    }
+
+    body, err := ioutil.ReadAll(resp.Body)
+    if err != nil {
+        return nil, &PasteError{"could not read response: " + err.Error()}
+    }
+
+    result := string(body)
+    if strings.Contains(result, "Bad API request") {
+        return nil, &PasteError{"could not create paste: " + result}
+    }
+
+    return &result, nil
+}
+
+// Delete a paste owned by the logged in user, where pasteKey is the bit after
+// pastebin.com/ in the address of the paste.
+func (pasteBin *PasteBinInfo) DeletePaste(pasteKey string) error {
+    query := url.Values{}
+    query.Add("api_dev_key", pasteBin.APIKey)
+    query.Add("api_user_key", pasteBin.UserKey)
+    query.Add("api_paste_key", pasteKey)
+    query.Add("api_option", "delete")
+
+    resp, err := http.PostForm(pastebinURL, query)
+    if err != nil {
+        return &PasteError{"request failed: " + err.Error()}
+    }
+
+    body, err := ioutil.ReadAll(resp.Body)
+    if err != nil {
+        return &PasteError{"could not read response: " + err.Error()}
+    }
+
+    result := string(body)
+    if strings.Contains(result, "Bad API request") {
+        return &PasteError{"could not delete paste: " + result}
+    }
+
+    return nil
+}
